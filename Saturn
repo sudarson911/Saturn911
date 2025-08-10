@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Universe — Saturn Prominent</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    html,body { height:100%; margin:0; background:#000; overflow:hidden; }
+    #container { width:100%; height:100%; display:block; }
+    .ui {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      z-index: 5;
+      background: rgba(0,0,0,0.25);
+      padding: 8px 10px;
+      border-radius: 6px;
+      backdrop-filter: blur(4px);
+    }
+    a { color: #80d1ff; }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+  <div class="ui">
+    <strong>Universe Demo</strong><br>
+    Saturn is emphasized (large, bright rings). Rotate/zoom with mouse.
+  </div>
+
+  <!-- three.js + OrbitControls via CDN -->
+  <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+  // --- Scene Setup ---
+  const container = document.getElementById('container');
+  const scene = new THREE.Scene();
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  container.appendChild(renderer.domElement);
+
+  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
+  camera.position.set(0, 30, 120);
+
+  // Controls
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.12;
+  controls.minDistance = 30;
+  controls.maxDistance = 350;
+
+  // --- Lighting ---
+  const ambient = new THREE.AmbientLight(0x777777, 0.6);
+  scene.add(ambient);
+
+  // A bright directional "sun" light to highlight Saturn
+  const sunLight = new THREE.PointLight(0xfff1bf, 2.4, 0, 2);
+  sunLight.position.set(-200, 100, 150);
+  scene.add(sunLight);
+
+  // subtle fill from opposite direction
+  const fillLight = new THREE.PointLight(0x80b7ff, 0.5);
+  fillLight.position.set(200, -60, -120);
+  scene.add(fillLight);
+
+  // --- Starfield background (particles) ---
+  const starsGeo = new THREE.BufferGeometry();
+  const starCount = 3000;
+  const positions = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    const r = 800 + Math.random() * 1200; // spread far away
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos((Math.random() * 2) - 1);
+    positions[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i * 3 + 2] = r * Math.cos(phi);
+  }
+  starsGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const starsMat = new THREE.PointsMaterial({ size: 0.9, color: 0xffffff, opacity: 0.9, transparent: true });
+  const starField = new THREE.Points(starsGeo, starsMat);
+  scene.add(starField);
+
+  // --- Helper: create a nice planet material (simple phong-like) ---
+  function createPlanetMaterial(baseColor, stripesColor=null, detail=0) {
+    // Use a canvas texture to create subtle bands / noise for realism
+    const size = 1024;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    // base gradient
+    const grad = ctx.createLinearGradient(0,0,size, size);
+    grad.addColorStop(0, tinyColor(baseColor, 0.9));
+    grad.addColorStop(1, tinyColor(baseColor, 0.6));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,size,size);
+
+    // add subtle horizontal bands
+    if (stripesColor) {
+      for (let i=0; i<200; i++) {
+        const y = Math.floor(Math.random()*size);
+        ctx.fillStyle = stripeColor(baseColor, stripesColor, Math.random()*0.4+0.2);
+        ctx.fillRect(0, y, size, Math.random()*3 + 0.5);
+      }
+    }
+
+    // small noise speckles
+    const imgData = ctx.getImageData(0,0,size,size);
+    for (let i=0; i<detail * 10000; i++){
+      const x = Math.floor(Math.random()*size);
+      const y = Math.floor(Math.random()*size);
+      const idx = (y*size + x) * 4;
+      imgData.data[idx] = imgData.data[idx] + Math.random()*12 - 6;
+      imgData.data[idx+1] = imgData.data[idx+1] + Math.random()*12 - 6;
+      imgData.data[idx+2] = imgData.data[idx+2] + Math.random()*12 - 6;
+    }
+    ctx.putImageData(imgData,0,0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.anisotropy = 4;
+    tex.needsUpdate = true;
+
+    return new THREE.MeshStandardMaterial({
+      map: tex,
+      metalness: 0.05,
+      roughness: 0.75
+    });
+
+    function tinyColor(hex, f) {
+      // hex like '#ffccaa' or number
+      const c = new THREE.Color(hex);
+      return `rgb(${Math.floor(c.r*255*f)},${Math.floor(c.g*255*f)},${Math.floor(c.b*255*f)})`;
+    }
+    function stripeColor(base, stripe, alpha) {
+      const b = new THREE.Color(base);
+      const s = new THREE.Color(stripe);
+      const r = Math.floor( (b.r*(1-alpha) + s.r*alpha) * 255 );
+      const g = Math.floor( (b.g*(1-alpha) + s.g*alpha) * 255 );
+      const bl = Math.floor( (b.b*(1-alpha) + s.b*alpha) * 255 );
+      return `rgb(${r},${g},${bl})`;
+    }
+  }
+
+  // --- Create Saturn (large and visually dominant) ---
+  const saturnGroup = new THREE.Group();
+  scene.add(saturnGroup);
+
+  // Saturn body
+  const saturnRadius = 22;
+  const saturnGeom = new THREE.SphereGeometry(saturnRadius, 64, 64);
+  const saturnMat = createPlanetMaterial('#e2c07a', '#d9b36b', 2); // warm yellowish bands
+  const saturn = new THREE.Mesh(saturnGeom, saturnMat);
+  saturn.castShadow = false;
+  saturn.receiveShadow = false;
+  saturnGroup.add(saturn);
+
+  // Emissive subtle glow to make Saturn pop
+  const glowGeom = new THREE.SphereGeometry(saturnRadius * 1.08, 32, 32);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0xfff3d9,
+    transparent: true,
+    opacity: 0.08,
+    blending: THREE.AdditiveBlending
+  });
+  const glow = new THREE.Mesh(glowGeom, glowMat);
+  saturnGroup.add(glow);
+
+  // Saturn ring - use RingGeometry and a canvas texture for gradient stripes
+  const ringInner = saturnRadius * 1.25;
+  const ringOuter = saturnRadius * 2.2;
+  const ringGeom = new THREE.RingGeometry(ringInner, ringOuter, 128, 1);
+  // rotate so ring faces camera properly
+  ringGeom.computeVertexNormals();
+
+  // Canvas texture for ring
+  const rsize = 2048;
+  const rcan = document.createElement('canvas');
+  rcan.width = rcan.height = rsize;
+  const rctx = rcan.getContext('2d');
+
+  // draw concentric dusty bands
+  for (let y=0; y < rsize; y++){
+    const t = y / rsize;
+    // color ramps biased towards brown/grey
+    const lightness = 200 - Math.abs((t-0.5))*120 + (Math.random()*10-5);
+    rctx.fillStyle = `rgba(${Math.floor(lightness+30)}, ${Math.floor(lightness+20)}, ${Math.floor(lightness)}, ${0.95 - Math.random()*0.25})`;
+    rctx.fillRect(0, y, rsize, 1);
+  }
+  // add radial transparency donut so outer is a bit faded
+  rctx.globalCompositeOperation = 'destination-out';
+  const grad = rctx.createRadialGradient(rsize/2, rsize/2, 0, rsize/2, rsize/2, rsize/2);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(0.95, 'rgba(0,0,0,0.25)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.7)');
+  rctx.fillStyle = grad;
+  rctx.fillRect(0,0,rsize,rsize);
+
+  const ringTexture = new THREE.CanvasTexture(rcan);
+  ringTexture.wrapS = ringTexture.wrapT = THREE.ClampToEdgeWrapping;
+  ringTexture.anisotropy = 4;
+
+  const ringMat = new THREE.MeshStandardMaterial({
+    map: ringTexture,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.95,
+    roughness: 0.9,
+    metalness: 0.02
+  });
+  const ring = new THREE.Mesh(ringGeom, ringMat);
+  // tilt the ring like Saturn
+  ring.rotation.x = Math.PI / 2.8;
+  // offset a little down so it intersects correctly
+  ring.position.y = 0;
+  // render behind the planet where appropriate using group ordering
+  saturnGroup.add(ring);
+
+  // Add subtle ring edge highlight using thin torus
+  const tor = new THREE.TorusGeometry((ringInner + ringOuter)/2, (ringOuter-ringInner)/40, 16, 240);
+  const torMat = new THREE.MeshBasicMaterial({ color: 0xfff4d8, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending });
+  const torMesh = new THREE.Mesh(tor, torMat);
+  torMesh.rotation.x = Math.PI / 2.8;
+  saturnGroup.add(torMesh);
+
+  // --- A few other planets (smaller) placed farther away ---
+  const planets = [];
+  const planetData = [
+    { r: 8, color:'#6ca6ff', x: -90, y: -10, z: -60 }, // bluish planet
+    { r: 6, color:'#b88646', x: 120, y: 20, z: -220 }, // reddish/orange small
+    { r: 10, color:'#7ec07a', x: 250, y: -40, z: -100 } // green-ish
+  ];
+  planetData.forEach((pd, i) => {
+    const pg = new THREE.Mesh(
+      new THREE.SphereGeometry(pd.r, 48, 48),
+      createPlanetMaterial(pd.color, null, 1)
+    );
+    pg.position.set(pd.x, pd.y, pd.z);
+    scene.add(pg);
+    planets.push(pg);
+  });
+
+  // Add labels? (lightweight) - optional: a billboard sprite for Saturn
+  const canvasLabel = document.createElement('canvas');
+  canvasLabel.width = 512;
+  canvasLabel.height = 128;
+  const cctx = canvasLabel.getContext('2d');
+  cctx.fillStyle = 'rgba(0,0,0,0)';
+  cctx.fillRect(0,0,512,128);
+  cctx.font = '36px Arial';
+  cctx.fillStyle = 'rgba(255, 240, 200, 0.95)';
+  cctx.fillText('Saturn', 20, 64);
+  const labelTex = new THREE.CanvasTexture(canvasLabel);
+  const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, opacity: 0.95 });
+  const sprite = new THREE.Sprite(labelMat);
+  sprite.scale.set(40, 10, 1);
+  sprite.position.set(0, saturnRadius + 28, 0);
+  saturnGroup.add(sprite);
+
+  // --- Animation variables ---
+  const start = Date.now();
+
+  // Make Saturn dominant: place it near center and slightly rotate the planet while ring rotates slowly
+  function animate() {
+    requestAnimationFrame(animate);
+    const t = (Date.now() - start) * 0.001;
+
+    // gentle rotation of Saturn
+    saturn.rotation.y += 0.0025;
+    glow.rotation.y += 0.0025;
+    torMesh.rotation.z += 0.0006;
+
+    // ring slow precession
+    ring.rotation.z = Math.sin(t * 0.05) * 0.02;
+
+    // other planets orbit slightly
+    planets.forEach((p, i) => {
+      p.rotation.y += 0.002 + i * 0.0005;
+      p.position.x += Math.sin(t * 0.2 * (i+1)) * 0.06;
+      p.position.z += Math.cos(t * 0.17 * (i+1)) * 0.06;
+    });
+
+    // subtle starfield twinkle
+    starField.rotation.y += 0.00002;
+
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // --- Resize handling ---
+  window.addEventListener('resize', () => {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+  });
+
+  // --- Optional: keyboard shortcuts to focus Saturn ---
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 's') {
+      // animate camera toward Saturn
+      gsapCameraTo(new THREE.Vector3(0, 20, 70));
+    }
+  });
+
+  // lightweight camera tween without GSAP (simple lerp)
+  function gsapCameraTo(targetVec) {
+    const duration = 600; // ms
+    const from = camera.position.clone();
+    const to = targetVec.clone();
+    const startTime = performance.now();
+    function step(now) {
+      const p = Math.min(1, (now - startTime) / duration);
+      camera.position.lerpVectors(from, to, easeOutCubic(p));
+      camera.lookAt(0,0,0);
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  function easeOutCubic(x){ return 1 - Math.pow(1 - x, 3); }
+  </script>
+</body>
+</html>
